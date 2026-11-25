@@ -9,6 +9,7 @@ import { APPLIANCES, APPLIANCE_FIELDS, applianceLimits, normalizeAppliance, plac
 import { layoutWorktopRuns, calculateWorktopOrder } from './worktop-order.js';
 import { WORKTOP_STOCK_PRICES } from '../data/worktop-prices.js';
 import { calculateDiscount, formatPromoPeriod } from './pricing.js';
+import { ALUMINUM_TILE, makeAluminumGrain, aluminumFaceScale } from './aluminum.js';
 
 const MM = 0.001;
 const fmt = new Intl.NumberFormat('ru-RU');
@@ -73,6 +74,10 @@ let planCamera = null;
 let toastTimer = null;
 let floorTexture = null;
 let wallTexture = null;
+// Shared, local reflection environment for the aluminium facade only.
+let aluminumReflectionTarget = null;
+let aluminumReflectionAttempted = false;
+let aluminumMaterial = null;
 let materialModalType = null;
 let materialModalCategory = 'all';
 let materialModalSearch = '';
@@ -1347,7 +1352,10 @@ function addBox(group,w,h,d,x,y,z,mat,part){
   // repeat values from the source image aspect ratio instead of squeezing
   // or tiling the image a fixed 2.2 times on every module.
   if(part==='worktop') configureCountertopTextureScale(mat,w,d);
-  if(part==='facade') configureFacadeTextureScale(mat,w,h);
+  if(part==='facade'){
+    if(mat.userData.proceduralAluminum) applyAluminumUV(mesh.geometry,w,h,d);
+    else configureFacadeTextureScale(mat,w,h);
+  }
   group.add(mesh);return mesh;
 }
 
@@ -1361,7 +1369,87 @@ function createCountertopMaterial(materialId){
   return createDecorMaterial(def,'countertop');
 }
 
+function getAluminumReflection(){
+  if(aluminumReflectionAttempted)return aluminumReflectionTarget?.texture || null;
+  if(!renderer)return null;
+  aluminumReflectionAttempted=true;
+  let source=null, generator=null;
+  try{
+    // A neutral, softly lit studio panorama. Wide vertical softboxes create
+    // angle-dependent highlights without sharp mirror images or extra lights.
+    // Linear HDR values are intentional: the softboxes are brighter than white.
+    const w=256,h=128,data=new Float32Array(w*h*4);
+    for(let y=0;y<h;y++){
+      const v=(y+.5)/h;
+      const upper=Math.exp(-Math.pow((v-.23)/.25,2));
+      const horizon=Math.exp(-Math.pow((v-.49)/.34,2));
+      for(let x=0;x<w;x++){
+        const u=(x+.5)/w;
+        let soft=0;
+        for(const [center,width,power] of [[.08,.065,1.9],[.34,.085,1.1],[.59,.055,1.65],[.84,.09,.9]]){
+          const d=Math.min(Math.abs(u-center),1-Math.abs(u-center));
+          soft+=power*Math.exp(-Math.pow(d/width,2));
+        }
+        const light=.25+.36*upper+.16*horizon+soft*Math.exp(-Math.pow((v-.38)/.25,2));
+        const i=(y*w+x)*4;
+        data[i]=light;data[i+1]=light;data[i+2]=light;data[i+3]=1;
+      }
+    }
+    source=new THREE.DataTexture(data,w,h,THREE.RGBAFormat,THREE.FloatType);
+    source.mapping=THREE.EquirectangularReflectionMapping;
+    source.colorSpace=THREE.LinearSRGBColorSpace;
+    source.magFilter=source.minFilter=THREE.LinearFilter;
+    // DataTexture rows run bottom-up in UV space; the top of our panorama
+    // (y=0) should correspond to the sky, not the floor.
+    source.flipY=true;
+    source.needsUpdate=true;
+    generator=new THREE.PMREMGenerator(renderer);
+    aluminumReflectionTarget=generator.fromEquirectangular(source);
+    return aluminumReflectionTarget.texture;
+  }catch(e){
+    console.warn('Не удалось создать отражения для декора Алюминий',e);
+    return null;
+  }finally{
+    source?.dispose();generator?.dispose();
+  }
+}
+
+function applyAluminumUV(geometry,w,h,d){
+  const uv=geometry.attributes.uv,index=geometry.index;
+  for(const group of geometry.groups){
+    const [sx,sy]=aluminumFaceScale(group.materialIndex,w,h,d);
+    const vertices=new Set();
+    for(let i=group.start;i<group.start+group.count;i++)vertices.add(index.getX(i));
+    for(const i of vertices)uv.setXY(i,uv.getX(i)*sx,uv.getY(i)*sy);
+  }
+  uv.needsUpdate=true;
+}
+
+function createAluminumMaterial(def){
+  if(aluminumMaterial)return aluminumMaterial;
+  const {color,roughness}=makeAluminumGrain();
+  const makeTexture=(pixels,isColor)=>{
+    const tex=new THREE.DataTexture(pixels,ALUMINUM_TILE.width,ALUMINUM_TILE.height,THREE.RGBAFormat,THREE.UnsignedByteType);
+    tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
+    tex.magFilter=THREE.LinearFilter;tex.minFilter=THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps=true;
+    if(isColor)tex.colorSpace=THREE.SRGBColorSpace;
+    if(renderer?.capabilities?.getMaxAnisotropy)tex.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);
+    tex.needsUpdate=true;return tex;
+  };
+  const env=getAluminumReflection();
+  const mat=new THREE.MeshStandardMaterial({color:0xffffff,map:makeTexture(color,true),roughness:1,roughnessMap:makeTexture(roughness,false),metalness:env?.isTexture ? .82 : .25});
+  if(env?.isTexture){mat.envMap=env;mat.envMapIntensity=.95;}
+  mat.userData.decorDef=def;mat.userData.decorUsage='facade';mat.userData.proceduralAluminum=true;
+  // Shared immutable material; only the mesh UVs change with the actual size.
+  aluminumMaterial=mat;return mat;
+}
+
 function createDecorMaterial(def,usage){
+  // The original aluminium JPG remains the catalogue swatch (previewCss).
+  // Never load it onto the 3D facade: baked photographic highlights would
+  // compete with the dynamic reflections.
+  if(usage==='facade'&&def.id==='td-aluminum')return createAluminumMaterial(def);
   const mat=new THREE.MeshStandardMaterial({color:0xffffff,roughness:def.roughness ?? (usage==='countertop'?.5:.68)});
   mat.userData.decorDef=def;
   mat.userData.decorUsage=usage;
