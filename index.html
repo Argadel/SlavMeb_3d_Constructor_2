@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#c82026" />
+  <title>3D-конструктор кухни — Славная мебель</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark"><img src="./assets/brand/logo-white.png" alt="Логотип Славная мебель"></div>
+      <div>
+        <strong>СЛАВНАЯ МЕБЕЛЬ</strong>
+        <span>Конструктор модульной кухни · MVP 1.3.40 · визуальный каталог декоров</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="reset-view" class="btn btn-ghost">Показать всю комнату</button>
+      <button id="save-project" class="btn btn-ghost">Сохранить</button>
+      <button id="clear-project" class="btn btn-danger">Очистить</button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <aside class="panel panel-left">
+      <div class="workspace-tabs" role="tablist" aria-label="Разделы конструктора">
+        <button class="workspace-tab active" data-mode="room" type="button">
+          <span class="workspace-icon">▦</span>
+          <span>Помещение</span>
+        </button>
+        <button class="workspace-tab" data-mode="modules" type="button">
+          <span class="workspace-icon">▤</span>
+          <span>Модули</span>
+        </button>
+      </div>
+
+      <div id="room-panel" class="workspace-panel active">
+        <div class="panel-title">Параметры помещения</div>
+        <div class="catalog-note">Задайте размеры числом или перетаскивайте стены прямо на плане.</div>
+
+        <div class="section section-first">
+          <div class="section-title">Размеры комнаты</div>
+          <div class="room-fields">
+            <label>Длина, мм<input id="room-width" type="number" value="3200" min="1800" max="8000" step="10"></label>
+            <label>Ширина, мм<input id="room-depth" type="number" value="3000" min="1800" max="8000" step="10"></label>
+            <label>Высота стен, мм<input id="room-height" type="number" value="2600" min="2200" max="4200" step="10"></label>
+          </div>
+          <button id="apply-room" class="btn btn-primary btn-full">Применить размеры</button>
+        </div>
+
+        <div class="help-card">
+          <b>Как изменить помещение</b>
+          <span>Перетащите левую/правую стену — изменится длина.</span>
+          <span>Перетащите верхнюю/нижнюю стену — изменится ширина.</span>
+          <span>Высота задаётся числом.</span>
+          <span>ПКМ по сетке — перемещение, колесо — приблизить/отдалить.</span>
+          <span>Размеры автоматически сохраняются для 3D.</span>
+        </div>
+      </div>
+
+      <div id="modules-panel" class="workspace-panel hidden">
+        <div class="panel-title">Каталог модулей</div>
+        <div class="catalog-note">Выберите тип модуля, затем нужную модель и размер. Глубина в карточке указана с фасадом и техническим зазором, без ручек и столешницы.</div>
+        <div id="module-tabs" class="module-tabs"></div>
+        <div class="catalog-search-wrap">
+          <label for="module-search">Поиск по модулю, артикулу или размеру</label>
+          <input id="module-search" class="catalog-search-input" type="search" placeholder="Например: пенал, 600 мм, 1.1.4">
+        </div>
+        <div id="catalog" class="catalog"></div>
+
+        <div id="selected-module-section" class="section">
+          <div class="section-title">Настройки выбранного модуля</div>
+          <div id="module-settings-empty" class="empty-state">Выберите модуль в 3D, чтобы изменить доступные параметры.</div>
+          <div id="module-settings" class="module-settings hidden">
+            <div class="module-settings-name" id="module-settings-name"></div>
+            <div id="furniture-facade-setting" class="module-color-setting material-setting">
+              <label>Фасад выбранного модуля</label>
+              <button id="facade-open" class="material-current-card" type="button">
+                <i id="facade-preview" class="material-preview"></i>
+                <span class="material-preview-text">
+                  <b id="material-name">Фасад</b>
+                  <small>Томлесдрев · ЛДСП</small>
+                </span>
+                <span class="material-change-label">Изменить</span>
+              </button>
+              <div class="material-legacy-controls" aria-hidden="true">
+                <select id="facade-category"><option value="all">Все фасады</option><option value="wood">Древесные</option><option value="fantasy">Фентезийные</option><option value="solid">Фоновые</option></select>
+                <select id="facade-select"></select>
+              </div>
+              <button id="apply-facade-all" class="btn btn-ghost btn-full material-apply-all" type="button">Применить фасад ко всей кухне</button>
+              <small>Новый модуль наследует фасад последнего добавленного модуля.</small>
+            </div>
+            <div id="appliance-settings" class="selection-height appliance-settings hidden">
+              <div class="appliance-field-grid"><label for="appliance-width">Ширина, мм<input id="appliance-width" data-appliance-field type="number" step="1" min="0" max="300"></label><label for="appliance-depth">Глубина, мм<input id="appliance-depth" data-appliance-field type="number" step="1" min="0" max="300"></label><label for="appliance-height">Высота, мм<input id="appliance-height" data-appliance-field type="number" step="1" min="0" max="300"></label></div>
+              <details class="appliance-gaps"><summary>Монтажные зазоры</summary><div class="appliance-field-grid"><label for="appliance-sideGap">С каждой стороны, мм<input id="appliance-sideGap" data-appliance-field type="number" step="1" min="0" max="300"></label><label for="appliance-backGap">Сзади, мм<input id="appliance-backGap" data-appliance-field type="number" step="1" min="0" max="300"></label><label for="appliance-topGap">Сверху, мм<input id="appliance-topGap" data-appliance-field type="number" step="1" min="0" max="300"></label></div><small>Укажите зазоры по инструкции производителя вашей техники. Нулевые значения — только для предварительного планирования.</small></details>
+              <small id="appliance-reserved"></small>
+              <button id="apply-appliance" class="btn btn-primary btn-full" type="button">Применить размеры</button>
+              <small>Техника нужна только для планирования и не входит в смету.</small>
+            </div>
+            <div id="module-height-setting" class="selection-height hidden">
+              <label for="selection-height">Низ модуля от пола, мм</label>
+              <div class="selection-height-controls">
+                <input id="selection-height" type="number" min="800" max="3200" step="10">
+                <button id="apply-selection-height" class="btn btn-ghost" type="button">Применить</button>
+              </div>
+              <small>Высоту можно менять и мышью — перетаскивайте настенный модуль вверх/вниз по стене. Система не позволит выйти выше потолка.</small>
+            </div>
+            <div id="floor-module-note" class="module-rule-note hidden">Этот модуль устанавливается на пол, поэтому его высота фиксирована.</div>
+            <button id="delete-selected" class="btn btn-danger btn-full" type="button" title="Удалить выбранный модуль (Delete)" aria-keyshortcuts="Delete">Удалить модуль</button>
+          </div>
+        </div>
+
+        <div class="section project-materials-section">
+          <div class="section-title">Столешница</div>
+          <div class="material-setting material-setting-project">
+            <button id="countertop-open" class="material-current-card" type="button">
+              <i id="countertop-preview" class="material-preview material-preview-wide"></i>
+              <span class="material-preview-text">
+                <b id="countertop-name">Столешница</b>
+                <small id="countertop-meta">СКИФ · 38 мм</small>
+              </span>
+              <span class="material-change-label">Изменить</span>
+            </button>
+            <small>Выберите декор во всплывающем каталоге.</small>
+            <div class="worktop-order-setting">
+              <button id="toggle-worktop-order" class="view-toggle backsplash-toggle" type="button" aria-pressed="false"><span class="view-toggle-track" aria-hidden="true"></span>Заказать столешницу у нас</button>
+              <small id="worktop-order-note">Столешница отображается в проекте, но не входит в стоимость гарнитура.</small>
+              <div id="worktop-order-preview" class="worktop-order-preview hidden" aria-live="polite"></div>
+            </div>
+            <div class="material-legacy-controls" aria-hidden="true">
+              <select id="countertop-category">
+                <option value="all">Все декоры</option><option value="light">Светлые</option><option value="stone">Камень и мрамор</option><option value="wood">Дерево</option><option value="industrial">Бетон и индустриальные</option><option value="dark">Тёмные</option><option value="color">Цветные</option>
+              </select>
+              <select id="countertop-select"></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Стеновая панель</div>
+          <div class="material-setting material-setting-project backsplash-setting">
+            <button id="toggle-backsplash" class="view-toggle backsplash-toggle" type="button" aria-pressed="false"><span class="view-toggle-track" aria-hidden="true"></span>Добавить стеновую панель</button>
+            <div id="backsplash-options" class="backsplash-options hidden">
+              <button id="backsplash-open" class="material-current-card" type="button" aria-label="Выбрать декор стеновой панели">
+                <i id="backsplash-preview" class="material-preview material-preview-wide"></i>
+                <span class="material-preview-text"><b id="backsplash-decor">Как у столешницы</b><small id="backsplash-decor-mode">Как у столешницы · автоматически</small></span>
+                <span class="material-change-label">Изменить</span>
+              </button>
+              <button id="backsplash-inherit" class="btn btn-ghost btn-full hidden" type="button">Как у столешницы</button>
+              <label for="backsplash-height">Высота панели, мм</label>
+              <input id="backsplash-height" type="number" min="50" max="1200" step="1" value="600">
+              <button id="toggle-backsplash-stove" class="view-toggle backsplash-toggle" type="button" aria-pressed="false"><span class="view-toggle-track" aria-hidden="true"></span>Продлить фартук над плитой</button>
+              <small>Толщина — 6 мм. Длина рассчитывается автоматически.</small>
+              <small>При установке панели за плитой проверьте допустимость материала и расстояния по инструкции к технике.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="help-card">
+          <b>Как работать в 3D</b>
+          <span>ЛКМ по пустому месту — вращение камеры.</span>
+          <span>Колесо — масштаб.</span>
+          <span>Зажмите модуль и тяните — перенос к другой стене.</span>
+          <span>Модуль автоматически «прилипает» к стене и соседним модулям.</span>
+          <span>Delete — удалить выбранный модуль.</span>
+        </div>
+      </div>
+    </aside>
+
+    <section class="work-area">
+      <div id="room-2d" class="room-2d">
+        <div class="plan-toolbar">
+          <div>
+            <b>План помещения</b>
+            <span>Вид сверху · размеры в миллиметрах</span>
+          </div>
+          <button id="plan-fit" class="btn btn-ghost" type="button">Показать целиком</button>
+        </div>
+        <div id="plan-stage" class="plan-stage">
+          <svg id="room-plan-svg" class="room-plan-svg" viewBox="0 0 1000 700" aria-label="2D план помещения">
+            <defs>
+              <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#d9dde2" stroke-width="1" />
+              </pattern>
+              <pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse">
+                <rect width="100" height="100" fill="url(#smallGrid)" />
+                <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#c6ccd4" stroke-width="1.5" />
+              </pattern>
+              <pattern id="floorTexture2d" width="180" height="180" patternUnits="userSpaceOnUse">
+                <image href="./assets/textures/floor-laminate.jpg" x="0" y="0" width="180" height="180" preserveAspectRatio="xMidYMid slice" opacity="0.9" />
+              </pattern>
+            </defs>
+            <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#grid)" />
+            <g id="plan-room-group"></g>
+          </svg>
+        </div>
+        <div class="plan-legend">
+          <span><i class="legend-line"></i> Стена</span>
+          <span><i class="legend-handle"></i> ЛКМ — потянуть стену</span>
+          <span>ПКМ — двигаться по сетке · колесо — масштаб</span>
+          <span>Размеры задаются в мм · минимум 1800 · максимум 8000</span>
+        </div>
+      </div>
+
+      <section id="viewport" class="viewport hidden">
+        <div id="loading" class="loading">Загрузка 3D…</div>
+        <svg id="module-dimensions" class="module-dimensions hidden" aria-hidden="true"></svg>
+        <div class="viewport-tools">
+          <div class="viewport-badge">
+            <span id="room-label">Комната 3200 × 3000 × 2600 мм</span>
+            <span class="dot">•</span>
+            <span id="wall-label">Ближайшая стена скрывается автоматически</span>
+          </div>
+          <div class="view-toggles" role="group" aria-label="Отображение кухни">
+            <button id="toggle-facades" type="button" class="view-toggle" aria-pressed="true" title="Показать или скрыть фасады и мебельные ручки"><span class="view-toggle-track" aria-hidden="true"></span>Фасады</button>
+            <button id="toggle-dimensions" type="button" class="view-toggle" aria-pressed="false" title="Показать или скрыть ширину и высоту модулей в миллиметрах"><span class="view-toggle-track" aria-hidden="true"></span>Размеры</button>
+          </div>
+        </div>
+        <div id="drag-status" class="drag-status hidden">Положение допустимо</div>
+      </section>
+    </section>
+
+    <aside class="panel panel-right">
+      <div id="room-right-panel" class="context-panel">
+        <div class="panel-title">Помещение</div>
+        <div class="summary-card summary-card-room">
+          <div><span>Длина</span><strong id="room-summary-width">3200 мм</strong></div>
+          <div><span>Ширина</span><strong id="room-summary-depth">3000 мм</strong></div>
+          <div><span>Высота</span><strong id="room-summary-height">2600 мм</strong></div>
+        </div>
+        <div class="section">
+          <div class="section-title">Что настраиваем сейчас</div>
+          <div class="empty-state room-explainer">
+            На первом этапе помещение прямоугольное. Размеры можно менять числом или стенами на плане. Позже сюда добавим двери, окна и коммуникации.
+          </div>
+        </div>
+        <div class="lead-card">
+          <b>Следующий шаг</b>
+          <p>Перейдите во вкладку «Модули» — 3D-комната автоматически возьмёт размеры этого плана.</p>
+          <button id="go-modules" class="btn btn-primary btn-full" type="button">Перейти к модулям</button>
+        </div>
+      </div>
+
+      <div id="modules-right-panel" class="context-panel hidden">
+        <div class="panel-title">Проект</div>
+        <div class="summary-card">
+          <div><span>Модулей</span><strong id="module-count">0</strong></div>
+          <div><span>Предварительно</span><strong id="total-price">0 ₽</strong></div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Характеристики выбранного модуля</div>
+          <div id="selection-empty" class="empty-state">Добавьте модуль из каталога или выберите его в 3D.</div>
+          <div id="selection" class="selection hidden">
+            <div class="selection-name" id="selection-name"></div>
+            <div class="selection-meta" id="selection-meta"></div>
+            <div class="selection-row"><span id="selection-depth-label">Глубина корпуса</span><b id="selection-depth"></b></div>
+            <div class="selection-row"><span>Глубина от стены</span><b id="selection-installed-depth"></b></div>
+            <div class="selection-row"><span>Тип размещения</span><b id="selection-mount"></b></div>
+            <div class="selection-row selection-color-row"><span>Цвет фасада</span><b class="selection-color-value"><i id="selection-color-dot" class="selection-color-dot"></i><span id="selection-color-name"></span></b></div>
+            <div class="selection-row"><span>Стена</span><b id="selection-wall"></b></div>
+            <div class="selection-row"><span>Положение</span><b id="selection-offset"></b></div>
+            <div id="selection-elevation-row" class="selection-row hidden"><span>Низ от пола</span><b id="selection-elevation"></b></div>
+          </div>
+        </div>
+
+        <div class="section project-material-summary">
+          <div class="section-title">Материалы</div>
+          <div class="selection-row"><span>Столешница</span><b id="project-countertop-name">—</b></div>
+          <div class="selection-row"><span>Заказ столешницы</span><b id="project-worktop-order-status">Не включён</b></div>
+          <div class="selection-row"><span>Стеновая панель</span><b id="project-backsplash-status">Не выбрана</b></div>
+          <div id="project-backsplash-details" class="hidden">
+            <div class="selection-row"><span>Декор</span><b id="project-backsplash-decor">—</b></div>
+            <div class="selection-row"><span>Высота / толщина</span><b id="project-backsplash-height">600 / 6 мм</b></div>
+            <div class="selection-row"><span>Общая длина</span><b id="project-backsplash-length">0 мм</b></div>
+            <div class="selection-row"><span>Площадь</span><b id="project-backsplash-area">0 м²</b></div>
+            <div id="project-backsplash-runs" class="backsplash-runs"></div>
+            <small class="backsplash-price-note">Стоимость панели уточняется при оформлении заказа.</small>
+          </div>
+        </div>
+
+        <div class="handles-note">
+          <span class="handles-note-icon" aria-hidden="true">i</span>
+          <div><b>Ручки для кухни</b><p>Ручки для модулей можно будет выбрать при оформлении заказа.</p></div>
+        </div>
+
+        <div id="active-promo" class="active-promo hidden">
+          <div class="promo-percent" id="active-promo-percent"></div>
+          <div class="promo-copy"><span class="promo-name" id="active-promo-name"></span><span class="promo-target" id="active-promo-target"></span><span class="promo-period hidden" id="active-promo-period"></span></div>
+        </div><div id="pricing-status" class="pricing-status" role="status"></div>
+        <div class="section spec-section">
+          <div class="section-title">Смета</div>
+          <div id="spec" class="spec"><div class="empty-state">Смета пока пуста.</div></div>
+        </div>
+
+        <div class="lead-card">
+          <b>Следующий этап</b>
+          <p>После утверждения механики сюда добавим сохранение проекта по ссылке и отправку в Битрикс24.</p>
+          <button class="btn btn-primary btn-full" disabled>Получить расчёт</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+
+  <div id="material-modal" class="material-modal hidden" aria-hidden="true">
+    <div class="material-modal-backdrop" data-material-close="1"></div>
+    <div class="material-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="material-modal-title">
+      <div class="material-modal-head">
+        <div>
+          <b id="material-modal-title">Выберите материал</b>
+          <span id="material-modal-subtitle">Каталог доступных декоров</span>
+        </div>
+        <button id="material-modal-close" class="material-modal-close" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <div class="material-modal-tools">
+        <div id="material-category-chips" class="material-filter-chips material-category-chips"></div>
+        <label class="material-search-wrap">
+          <span>Поиск</span>
+          <input id="material-search" type="search" placeholder="Название или номер декора">
+        </label>
+      </div>
+      <div id="material-modal-count" class="material-modal-count"></div>
+      <div id="material-modal-grid" class="material-modal-grid"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite">
+    <div>
+      <b id="toast-title">Изменения применены</b>
+      <span id="toast-text">Размеры помещения обновлены.</span>
+    </div>
+    <button id="toast-close" type="button" aria-label="Закрыть уведомление">×</button>
+  </div>
+
+  <div id="webgl-error" class="error-overlay hidden">
+    <div><b>Не удалось запустить WebGL.</b><br>Откройте приложение в актуальном Chrome / Edge / Safari.</div>
+  </div>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
